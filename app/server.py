@@ -4,6 +4,8 @@ import urllib3
 from dotenv import load_dotenv
 from python_freeipa import ClientMeta
 
+from app.models import User
+
 load_dotenv()
 
 IPA_HOST = os.getenv("IPA_HOST")
@@ -13,16 +15,27 @@ IPA_PASS = os.getenv("IPA_PASS")
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+def parse_user(data: dict) -> User:
+    return User(
+        username=data["uid"][0],
+        first_name=data.get("givenname", [""])[0],
+        last_name=data.get("sn", [""])[0],
+        disabled=data.get("nsaccountlock", False),
+    )
+
+
 class IPAClient:
     def __init__(
         self,
         host: str,
         username: str,
         password: str,
-        name: str,
     ):
         self.client = ClientMeta(host, verify_ssl=False)
         self.client.login(username, password)
+
+    def ping(self):
+        return self.client.ping()
 
     # HOST
     def host_find(self, search: str):
@@ -88,8 +101,13 @@ class IPAClient:
         return self.client.sudorule_show(a_cn=name)
 
     # USER
-    def user_find(self, search: str):
-        return self.client.user_find(search)
+    def user_find(self, search: str) -> list[User]:
+        response = self.client.user_find(search)
+
+        return [
+            parse_user(user_data)
+            for user_data in response["result"]
+        ]
 
     def user_add(
         self,
@@ -116,6 +134,12 @@ class IPAClient:
     def user_enable(self,username: str):
         return self.client.user_enable(a_uid=username)
 
+    def user_show(self, username: str) -> User:
+        response = self.client.user_show(a_uid=username)
+        user_data = response["result"]
+
+        return parse_user(user_data)
+
     # HBAC
     def hbacrule_find(self, search: str):
         return self.client.hbacrule_find(search)
@@ -130,7 +154,7 @@ class IPAClient:
         return self.client.hbacrule_disable(a_cn=name)
 
     def hbacrule_enable(self, name: str):
-        return self.client.hbacrule_enable(self, a_cn=name)
+        return self.client.hbacrule_enable(a_cn=name)
 
 def main():
     ipa = IPAClient(
@@ -138,6 +162,16 @@ def main():
         username=IPA_USER,
         password=IPA_PASS,
     )
+
+    users = ipa.user_find("")
+
+    for user in users:
+        print(
+            user.username,
+            user.first_name,
+            user.last_name,
+            user.disabled,
+        )
 
 if __name__ == "__main__":
     main()
